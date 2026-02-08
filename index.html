@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Koala Sudoku</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg, #ffd6e8, #111);
+  margin: 0;
+  padding: 10px;
+  color: white;
+}
+
+h1 { text-align: center; color: #ff5fa2; }
+
+.game-wrapper { display: flex; justify-content: center; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+
+.controls { text-align: center; }
+
+select, button { padding: 8px 12px; border-radius: 8px; border: none; margin: 5px; cursor: pointer; }
+
+button { background: #ff5fa2; color: white; }
+
+#timer, #best { font-size: 18px; margin: 6px; }
+
+/* Sudoku Grid */
+.sudoku { display: grid; grid-template-columns: repeat(9,42px); grid-template-rows: repeat(9,42px); margin: 10px auto; }
+
+input { width:42px; height:42px; font-size:18px; text-align:center; border:1px solid #555; box-sizing:border-box; background:#111; color:white; }
+
+input:disabled { background:#000; color:#ffb3d9; font-weight:bold; }
+
+input:nth-child(3n) { border-right:6px solid white; }
+input:nth-child(9n+1) { border-left:6px solid white; }
+input:nth-child(-n+9),
+input:nth-child(n+28):nth-child(-n+36),
+input:nth-child(n+55):nth-child(-n+63) { border-top:6px solid white; }
+input:nth-child(n+19):nth-child(-n+27),
+input:nth-child(n+46):nth-child(-n+54),
+input:nth-child(n+73):nth-child(-n+81) { border-bottom:6px solid white; }
+
+.error { background:#ff6b6b !important; color:white; }
+
+.koala-side { text-align:center; max-width:160px; }
+.koala-side img { width:140px; margin-top:10px; transition: transform 0.5s ease-in-out; }
+
+#overlay {
+  position: fixed; inset:0;
+  background: rgba(0,0,0,0.85);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+  color: white;
+  animation: none;
+}
+
+#overlay.flash { animation: flash-bg 0.6s ease-in-out infinite alternate; }
+#overlay h2 { font-size: 24px; margin: 10px; animation: popIn 0.5s ease; }
+#overlay button { margin-top: 20px; font-size: 16px; cursor: pointer; }
+
+/* Animations */
+@keyframes flash-bg { from {background: rgba(255,0,150,0.85);} to {background: rgba(255,200,255,0.85);} }
+@keyframes popIn { from {transform: scale(0.7); opacity:0;} to {transform: scale(1); opacity:1;} }
+@keyframes bounceGif { from { transform: scale(1.5); } to { transform: scale(1.8); } }
+</style>
+</head>
+
+<body>
+
+<h1>🐨 Koala Sudoku</h1>
+
+<div class="game-wrapper">
+  <div class="controls">
+    <select id="difficulty">
+      <option value="40">Moderate</option>
+      <option value="30">Hard</option>
+    </select>
+    <button onclick="startGame()">Restart</button>
+    <div id="timer">⏱ 00:00</div>
+    <div id="best">🏆 Best Time: --:--</div>
+    <div class="sudoku" id="board"></div>
+  </div>
+
+  <div class="koala-side">
+    <p>Go go go! 💕</p>
+    <img id="koalaGif" src="koala.gif" alt="Cheering Koala">
+  </div>
+</div>
+
+<div id="overlay">
+  <h2 id="message"></h2>
+  <button onclick="startGame()">Start Again</button>
+</div>
+
+<script>
+const boardDiv = document.getElementById("board");
+const timerEl = document.getElementById("timer");
+const bestEl = document.getElementById("best");
+const overlay = document.getElementById("overlay");
+const message = document.getElementById("message");
+const koalaImg = document.getElementById("koalaGif");
+
+let solution = [];
+let seconds = 0;
+let timer;
+let startTime;
+
+const congratsMessages = [
+  "Congratulations! One puzzle down, enjoy the next.",
+  "Congratulations! Logic wins again.",
+  "Congratulations! Smooth solve, keep going.",
+  "Congratulations! Your brain is in the zone.",
+  "Congratulations! One grid cleared, many more ahead.",
+  "Congratulations! Stay calm and trust your logic.",
+  "Congratulations! Nice and steady solve.",
+  "Congratulations! That was clean.",
+  "Congratulations! You’re on a roll.",
+  "Congratulations! Warm-up complete.",
+  "Congratulations! Numbers aligned perfectly.",
+  "Congratulations! Focus like that wins puzzles.",
+  "Congratulations! Every square earned.",
+  "Congratulations! Keep the momentum.",
+  "Congratulations! One step closer to mastery.",
+  "Congratulations! Your reasoning is sharp.",
+  "Congratulations! Grid complete, confidence up.",
+  "Congratulations! The puzzle didn’t stand a chance.",
+  "Congratulations! You solved that beautifully.",
+  "Congratulations! Brain power at work.",
+  "Congratulations! Same patience, next grid.",
+  "Congratulations! That was satisfying.",
+  "Congratulations! Clear mind, clear grid.",
+  "Congratulations! Precision pays off.",
+  "Congratulations! Logic stayed solid.",
+  "Congratulations! Well balanced solve.",
+  "Congratulations! Calm thinking wins again.",
+  "Congratulations! That flow was perfect.",
+  "Congratulations! Ready for the next challenge.",
+  "Congratulations! Trust the process — it works.",
+  "Congratulations! Everything fell into place.",
+  "Congratulations! Strong reasoning all the way through.",
+  "Congratulations! Clean rows, columns, and boxes.",
+  "Congratulations! You made it look easy.",
+  "Congratulations! That solve was smooth.",
+  "Congratulations! Brain warmed up nicely.",
+  "Congratulations! Good luck on the next one.",
+  "Congratulations! Keep enjoying the puzzle.",
+  "Congratulations! Another grid conquered."
+];
+
+// Best time functions
+function loadBest() {
+  const b = localStorage.getItem("koalaBest");
+  if (b) bestEl.textContent = "🏆 Best Time: " + b;
+}
+function saveBest(sec) {
+  const m = Math.floor(sec/60), s = sec%60;
+  const t = `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  const b = localStorage.getItem("koalaBest");
+  if(!b || t<b) { localStorage.setItem("koalaBest", t); bestEl.textContent="🏆 Best Time: "+t; }
+}
+
+// Sudoku generator
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a;}
+
+function generateSudoku() {
+  const base=3, side=9, pattern=(r,c)=> (base*(r%base)+Math.floor(r/base)+c)%side;
+  const rBase=[0,1,2];
+  const rows = shuffle(rBase.slice()).flatMap(g=>shuffle(rBase.slice()).map(r=>g*base+r));
+  const cols = shuffle(rBase.slice()).flatMap(g=>shuffle(rBase.slice()).map(c=>g*base+c));
+  const nums = shuffle([1,2,3,4,5,6,7,8,9]);
+  solution=rows.map(r=>cols.map(c=>nums[pattern(r,c)]));
+  return solution.map(r=>[...r]);
+}
+
+function removeNumbers(b, clues){
+  let remove = 81 - clues;
+  while(remove){
+    const r=Math.floor(Math.random()*9), c=Math.floor(Math.random()*9);
+    if(b[r][c]){b[r][c]=0; remove--;}
+  }
+}
+
+function startGame() {
+  clearInterval(timer);
+  overlay.style.display="none"; overlay.classList.remove("flash");
+  boardDiv.innerHTML=""; seconds=0; startTime=Date.now();
+  const board=generateSudoku(); removeNumbers(board,difficulty.value);
+  board.flat().forEach((v,i)=>{
+    const input=document.createElement("input");
+    if(v){input.value=v; input.disabled=true;}
+    else{input.maxLength=1; input.oninput=()=>{if(!/^[1-9]$/.test(input.value)) input.value=""; highlightDuplicates(); checkWin();};}
+    boardDiv.appendChild(input);
+  });
+  startTimer();
+  koalaImg.style.transform="scale(1)"; // reset GIF scale
+  koalaImg.style.animation="";
+}
+
+function startTimer() {
+  timer=setInterval(()=>{
+    seconds++;
+    const m=Math.floor(seconds/60), s=seconds%60;
+    timerEl.textContent=`⏱ ${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  },1000);
+}
+
+function highlightDuplicates(){
+  const cells=[...boardDiv.children];
+  cells.forEach(c=>c.classList.remove("error"));
+  for(let i=0;i<81;i++){
+    const r=Math.floor(i/9), c=i%9, v=cells[i].value;
+    if(!v) continue;
+    for(let j=i+1;j<81;j++){
+      const rr=Math.floor(j/9), cc=j%9;
+      if(cells[j].value===v&&(r===rr||c===cc||(Math.floor(r/3)===Math.floor(rr/3)&&Math.floor(c/3)===Math.floor(cc/3)))){
+        cells[i].classList.add("error"); cells[j].classList.add("error");
+      }
+    }
+  }
+}
+
+function checkWin(){
+  const cells=[...boardDiv.children];
+  for(let i=0;i<81;i++){
+    const r=Math.floor(i/9), c=i%9;
+    if(cells[i].value === "" || +cells[i].value!==solution[r][c]) return;
+  }
+  saveBest(seconds);
+  const msg = congratsMessages[Math.floor(Math.random()*congratsMessages.length)];
+  endGame(msg,true);
+}
+
+function endGame(txt,isWin=false){
+  clearInterval(timer);
+  message.textContent = txt;
+  overlay.style.display="flex";
+  if(isWin){
+    overlay.classList.add("flash");
+    koalaImg.style.transform="scale(1.8)"; // enlarge GIF
+    koalaImg.style.animation = "bounceGif 0.6s ease-in-out infinite alternate"; // bounce
+  } else {
+    overlay.classList.remove("flash");
+    koalaImg.style.transform="scale(1)";
+    koalaImg.style.animation = "";
+  }
+}
+
+loadBest();
+startGame();
+</script>
+
+</body>
+</html>
